@@ -19,6 +19,24 @@ const DefaultBaseURL = "https://api.github.com"
 // Set to values > 0 to control verbosity, for debugging.
 var VERBOSITY = 0
 
+// DoAuthRequest ...
+//
+// TODO: This function is amazingly ugly (separate headers, token, no API
+// URL constructions, et cetera).
+func DoAuthRequest(method, url, mime, token string, headers map[string]string, body io.Reader) (*http.Response, error) {
+	req, err := newAuthRequest(method, url, mime, token, headers, body)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
+}
+
 // Client collects a few options that can be set when contacting the GitHub
 // API, such as authorization tokens. Methods called on Client will supply
 // these options when calling the API.
@@ -207,6 +225,45 @@ func (c Client) getPaginated(uri string) (io.ReadCloser, error) {
 	}()
 
 	return r, nil
+}
+
+// Create a new request that sends the auth token.
+func newAuthRequest(method, url, mime, token string, headers map[string]string, body io.Reader) (*http.Request, error) {
+	vprintln("creating request:", method, url, mime, token)
+
+	var n int64 // content length
+	var err error
+	if f, ok := body.(*os.File); ok {
+		// Retrieve the content-length and buffer up if necessary.
+		body, n, err = materializeFile(f)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		return nil, err
+	}
+
+	// net/http automatically does this if req.Body is of type
+	// (bytes.Reader|bytes.Buffer|strings.Reader). Sadly, we also need to
+	// handle *os.File.
+	if n != 0 {
+		vprintln("setting content-length to", n)
+		req.ContentLength = n
+	}
+
+	if mime != "" {
+		req.Header.Set("Content-Type", mime)
+	}
+	req.Header.Set("Authorization", "token "+token)
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	return req, nil
 }
 
 // nextLink returns the HTTP header Link annotated with 'next', "" otherwise.

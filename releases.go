@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aktau/github-release/github"
 	"github.com/dustin/go-humanize"
+	"github.com/meterup/github-release/github"
 )
 
 const (
