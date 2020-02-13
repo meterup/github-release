@@ -56,7 +56,14 @@ func NewClient(username, token string, client *rest.Client) Client {
 	return c
 }
 
+// SetBaseURL updates the client's base URL, if baseurl is a non-empty value.
 func (c Client) SetBaseURL(baseurl string) {
+	// This is lazy, because the caller always tries to override the base URL
+	// with EnvApiEndpoint and we used to ignore that at the top of Get, but we
+	// don't do that now. So instead just filter out/ignore the empty string.
+	if baseurl == "" {
+		return
+	}
 	c.client.Base = baseurl
 }
 
@@ -174,6 +181,22 @@ func (c Client) do(r *http.Request) (*http.Response, error) {
 	return res, nil
 }
 
+const uaPart = "github-release/" + VERSION
+
+func (c Client) NewRequest(method, uri string, body io.Reader) (*http.Request, error) {
+	req, err := c.client.NewRequest(method, uri, body)
+	if err != nil {
+		return nil, err
+	}
+	ua := req.Header.Get("User-Agent")
+	if ua == "" {
+		req.Header.Set("User-Agent", uaPart)
+	} else {
+		req.Header.Set("User-Agent", uaPart+" "+ua)
+	}
+	return req, nil
+}
+
 // getPaginated returns a reader that yields the concatenation of the
 // paginated responses to a query (URI).
 //
@@ -190,7 +213,7 @@ func (c Client) getPaginated(uri string) (io.ReadCloser, error) {
 	v := u.Query()
 	v.Set("per_page", "100") // The default is 30, this makes it less likely for Github to rate-limit us.
 	u.RawQuery = v.Encode()
-	req, err := c.client.NewRequest("GET", u.String(), nil)
+	req, err := c.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +246,7 @@ func (c Client) getPaginated(uri string) (io.ReadCloser, error) {
 				return // We're done.
 			}
 
-			req, err := c.client.NewRequest("GET", nextLinkURL, nil)
+			req, err := c.NewRequest("GET", nextLinkURL, nil)
 			if err != nil {
 				w.CloseWithError(err)
 				return
@@ -291,10 +314,13 @@ func newAuthRequest(method, url, mime, token string, headers map[string]string, 
 		}
 	}
 
+	// TODO find all of the usages and replace with the Client.
 	req, err := http.NewRequest(method, url, body)
 	if err != nil {
 		return nil, err
 	}
+	req.SetBasicAuth("", token)
+	req.Header.Set("User-Agent", uaPart)
 
 	// net/http automatically does this if req.Body is of type
 	// (bytes.Reader|bytes.Buffer|strings.Reader). Sadly, we also need to
@@ -307,12 +333,10 @@ func newAuthRequest(method, url, mime, token string, headers map[string]string, 
 	if mime != "" {
 		req.Header.Set("Content-Type", mime)
 	}
-	req.Header.Set("Authorization", "token "+token)
 
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-
 	return req, nil
 }
 
