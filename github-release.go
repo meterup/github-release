@@ -8,8 +8,6 @@ import (
 	"github.com/voxelbrain/goptions"
 )
 
-const GH_URL = "https://github.com"
-
 type Options struct {
 	Help      goptions.Help `goptions:"-h, --help, description='Show this help'"`
 	Verbosity []bool        `goptions:"-v, --verbose, description='Be verbose'"`
