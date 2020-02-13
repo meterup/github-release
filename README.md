@@ -1,6 +1,11 @@
 github-release
 ==============
 
+**Note:** This has been forked from aktau/github-release, since that project is
+no longer maintained. Most of the code is still the same; the API's are still
+the same. However, we use Basic Auth to authenticate to the Github API now,
+instead of passing tokens in query parameters.
+
 A small commandline app written in Go that allows you to easily create
 and delete releases of your projects on Github. In addition it allows
 you to attach files to those releases.
@@ -119,6 +124,7 @@ Used libraries
 | [github.com/dustin/go-humanize](https://github.com/dustin/go-humanize)     | humanize file sizes | MIT     |
 | [github.com/tomnomnom/linkheader](https://github.com/tomnomnom/linkheader) | GH API pagination   | MIT     |
 | [github.com/voxelbrain/goptions](https://github.com/voxelbrain/goptions)   | option parsing      | BSD     |
+| [github.com/kevinburke/rest](https://github.com/kevinburke/rest)   | HTTP client      | MIT     |
 
 Todo
 ====
@@ -128,4 +134,5 @@ Todo
 Copyright
 =========
 
-Copyright (c) 2014, Nicolas Hillegeer. All rights reserved.
+Copyright (c) 2014-2017, Nicolas Hillegeer. All rights reserved.
+Copyright (c) 2020, Meter, Inc. All rights reserved.
