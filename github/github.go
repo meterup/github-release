@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 
+	"github.com/kevinburke/rest"
 	"github.com/tomnomnom/linkheader"
 )
 
@@ -41,16 +42,27 @@ func DoAuthRequest(method, url, mime, token string, headers map[string]string, b
 // API, such as authorization tokens. Methods called on Client will supply
 // these options when calling the API.
 type Client struct {
-	Token   string // Github API token, used when set.
-	BaseURL string // Github API URL, defaults to DefaultBaseURL if unset.
+	client *rest.Client
+}
+
+// NewClient creates a new Client for use with the Github API.
+func NewClient(username, token string, client *rest.Client) Client {
+	c := Client{}
+	if client == nil {
+		c.client = rest.NewClient(username, token, DefaultBaseURL)
+	} else {
+		c.client = client
+	}
+	return c
+}
+
+func (c Client) SetBaseURL(baseurl string) {
+	c.client.Base = baseurl
 }
 
 // Get fetches uri (relative URL) from the GitHub API and unmarshals the
 // response into v. It takes care of pagination transparantly.
 func (c Client) Get(uri string, v interface{}) error {
-	if c.BaseURL == "" {
-		c.BaseURL = DefaultBaseURL
-	}
 	rc, err := c.getPaginated(uri)
 	if err != nil {
 		return err
@@ -130,6 +142,38 @@ func (c Client) Get(uri string, v interface{}) error {
 	}
 }
 
+var defaultHttpClient *http.Client
+
+func init() {
+	defaultHttpClient = &http.Client{
+		Transport: rest.DefaultTransport,
+	}
+}
+
+// Caller is responsible for reading and closing the response body.
+func (c Client) do(r *http.Request) (*http.Response, error) {
+	// Pulled this out of client.go:Do because we need to read the response
+	// headers.
+	var res *http.Response
+	var err error
+	if c.client.Client == nil {
+		res, err = defaultHttpClient.Do(r)
+	} else {
+		res, err = c.client.Client.Do(r)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 400 {
+		// both of these consume res.Body
+		if c.client.ErrorParser != nil {
+			return nil, c.client.ErrorParser(res)
+		}
+		return nil, rest.DefaultErrorParser(res)
+	}
+	return res, nil
+}
+
 // getPaginated returns a reader that yields the concatenation of the
 // paginated responses to a query (URI).
 //
@@ -138,24 +182,21 @@ func (c Client) Get(uri string, v interface{}) error {
 func (c Client) getPaginated(uri string) (io.ReadCloser, error) {
 	// Parse the passed-in URI to make sure we don't lose any values when
 	// setting our own params.
-	u, err := url.Parse(c.BaseURL + uri)
+	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
 	}
 
 	v := u.Query()
 	v.Set("per_page", "100") // The default is 30, this makes it less likely for Github to rate-limit us.
-	if c.Token != "" {
-		v.Set("access_token", c.Token)
-	}
 	u.RawQuery = v.Encode()
-	resp, err := http.Get(u.String())
+	req, err := c.client.NewRequest("GET", u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("expected '200 OK' but received '%v' (url: %s)", resp.Status, resp.Request.URL)
+	resp, err := c.do(req)
+	if err != nil {
+		return nil, err
 	}
 	vprintln("GET (top-level)", resp.Request.URL, "->", resp)
 
@@ -177,12 +218,21 @@ func (c Client) getPaginated(uri string) (io.ReadCloser, error) {
 	go func() {
 		defer close(responses) // Signal that no more requests are coming.
 		for len(links) > 0 {
-			URL := nextLink(links)
-			if URL == "" {
+			nextLinkURL := nextLink(links)
+			if nextLinkURL == "" {
 				return // We're done.
 			}
 
-			resp, err := http.Get(URL)
+			req, err := c.client.NewRequest("GET", nextLinkURL, nil)
+			if err != nil {
+				w.CloseWithError(err)
+				return
+			}
+			resp, err := c.do(req)
+			if err != nil {
+				w.CloseWithError(err)
+				return
+			}
 			links = linkheader.Parse(resp.Header.Get("Link"))
 			if err != nil {
 				w.CloseWithError(err)
